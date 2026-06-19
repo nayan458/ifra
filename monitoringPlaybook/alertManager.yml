@@ -1,0 +1,49 @@
+global:
+  resolve_timeout: 5m
+  smtp_smarthost: "smtp.gmail.com:587"
+  smtp_auth_username: "nayancoding@gmail.com"
+  smtp_auth_password: "rcdz teec gtdb xrie"
+  smtp_require_tls: true
+  smtp_from: "nayancoding@gmail.com"
+
+templates: []
+
+route:
+  receiver: "default"
+  repeat_interval: 24h
+
+receivers:
+  - name: "default"
+    email_configs:
+      - to: "nayancoding@gmail.com"
+        from: "nayancoding@gmail.com"
+        headers:
+          Subject: "Alert: {{ .GroupLabels.alertname }}"
+        html: |
+          <b>Alert Summary</b>
+          <p><b>Alerts Firing:</b> {{ len .Alerts.Firing }}</p>
+          <p><b>Alerts Resolved:</b> {{ len .Alerts.Resolved }}</p>
+          {{ range .Alerts }}
+          <hr>
+          <b>Alert:</b> {{ .Labels.alertname }}<br>
+          <b>Severity:</b> {{ .Labels.severity }}<br>
+          <b>Summary:</b> {{ .Annotations.summary }}<br>
+          <b>Description:</b> {{ .Annotations.description }}<br>
+          {{ end }}
+      # Add more email recipients below (copy the block above and change the 'to' field)
+      # Example:
+      - to: "nayanmoni@cdac.in"
+        from: "nayancoding@gmail.com"
+        headers:
+          Subject: "Alert: {{ .GroupLabels.alertname }}"
+        html: |
+          <b>Alert Summary</b>
+          <p><b>Alerts Firing:</b> {{ len .Alerts.Firing }}</p>
+          <p><b>Alerts Resolved:</b> {{ len .Alerts.Resolved }}</p>
+          {{ range .Alerts }}
+          <hr>
+          <b>Alert:</b> {{ .Labels.alertname }}<br>
+          <b>Severity:</b> {{ .Labels.severity }}<br>
+          <b>Summary:</b> {{ .Annotations.summary }}<br>
+          <b>Description:</b> {{ .Annotations.description }}<br>
+          {{ end }}

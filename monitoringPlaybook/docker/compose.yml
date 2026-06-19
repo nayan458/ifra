@@ -1,0 +1,91 @@
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: stoneinscription-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./alert.yml:/etc/prometheus/alert.yml
+      - prometheus_data:/prometheus
+    extra_hosts:
+      - "mongodb-primary:10.180.22.114"
+      - "mongodb-secondary:10.180.22.115"
+      - "mongodb-arbiter:10.180.22.116"
+      - "geo:10.182.0.210"
+      - "suggestion_model:10.180.93.12"
+      - "content_moderation:10.180.93.12"
+      - "rocm_exporter:10.180.93.12"
+      - "classification_model:10.180.93.12"
+      - "stoneinscription-backend:10.180.148.197"
+    ports:
+      - "9090:9090"
+    networks:
+      - monitoring_network
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: stoneinscription-alertmanager
+    restart: unless-stopped
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertManager.yml:/etc/alertmanager/alertManager.yml
+    command:
+      - "--config.file=/etc/alertmanager/alertManager.yml"
+    networks:
+      - monitoring_network
+
+  node_exporter:
+    image: prom/node-exporter:latest
+    container_name: stoneinscription-node-exporter
+    restart: unless-stopped
+    ports:
+      - "9100:9100"
+    networks:
+      - monitoring_network
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: stoneinscription-cadvisor
+    restart: unless-stopped
+    ports:
+      - "8082:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - monitoring_network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: stoneinscription-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - monitoring_network
+  blackbox_exporter:
+    container_name: blackbox_exporter
+    image: prom/blackbox-exporter:latest
+    extra_hosts:
+      - "geo:10.182.0.210"
+    ports:
+      - "9115:9115"
+    networks:
+      - monitoring_network
+
+volumes:
+  grafana_data:
+    driver: local
+  prometheus_data:
+    driver: local
+networks:
+  monitoring_network:
+    driver: bridge

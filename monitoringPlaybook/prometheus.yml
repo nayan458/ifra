@@ -1,0 +1,88 @@
+global:
+  scrape_interval: 5s
+
+rule_files:
+  - alert.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["prometheus:9090"]
+
+  - job_name: "node"
+    static_configs:
+      - targets: ["node_exporter:9100"]
+
+  - job_name: "cadvisor"
+    static_configs:
+      - targets: ["cadvisor:8080"]
+
+  - job_name: "geo"
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://geo:8080/search?q=Delhi&format=json
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox_exporter:9115
+
+  - job_name: "suggestion AI model"
+    static_configs:
+    - targets: ["suggestion_model:8080"]
+      labels:
+        instance: "suggestion_model"
+
+  - job_name: "content moderation AI model"
+    static_configs:
+    - targets: ["content_moderation:8081"]
+      labels:
+        instance: "content_moderation"
+
+  - job_name: "mongodb"
+    static_configs:
+    - targets: ["mongodb-primary:9216"]
+      labels:
+        instance: "mongodb-primary"
+
+    - targets: ["mongodb-secondary:9216"]
+      labels:
+        instance: "mongodb-secondary-1"
+
+    - targets: ["mongodb-arbiter:9216"]
+      labels:
+        instance: "mongodb-arbiter"
+        
+  - job_name: "spring-backend"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["stoneinscription-backend:8081"]
+
+  - job_name: "Classification-model"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["classification_model:8001"]
+
+  # - job_name: "amd-gpu"
+  #   static_configs:
+  #     - targets: ["rocm_exporter:9101"]
+
+# rule_files:
+#   - "alert.yml"
+
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#             - "alertmanager:9093"

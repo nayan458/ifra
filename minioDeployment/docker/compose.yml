@@ -1,0 +1,28 @@
+
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: stoneinscription-minio
+    command: server /data --console-address ":9001"
+    env_file:
+      - .env
+      
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - stoneinscription-network
+      
+networks:
+  stoneinscription-network:
+    driver: bridge
+
+volumes:
+  minio_data:

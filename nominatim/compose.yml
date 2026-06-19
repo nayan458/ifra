@@ -1,0 +1,36 @@
+services:
+  geo:
+    container_name: geo
+    image: mediagis/nominatim:5.2
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+    volumes:            
+      - ./data:/data      # to load the PBF file
+
+
+# services:
+#   geo:
+#     container_name: geo
+#     image: mediagis/nominatim:5.2
+#     env_file:
+#       - .env
+#     ports:
+#       - "8080:8080"
+#     volumes:
+#       - ./data:/data
+#       - ./postgres-data:/var/lib/postgresql/16/main   # persist DB
+#     restart: unless-stopped
+
+#     # deploy:
+#     #   resources:
+#     #     limits:
+#     #       cpus: '12'
+#     #       memory: 24g
+
+#     # healthcheck:
+#     #   test: ["CMD", "curl", "-f", "http://localhost:8080/status"]
+#     #   interval: 30s
+#     #   timeout: 5s
+#     #   retries: 5

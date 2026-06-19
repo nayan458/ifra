@@ -1,0 +1,53 @@
+groups:
+  - name: service-alerts
+    interval: 30s
+    rules:
+      # Alert when any service is down
+      - alert: ServiceDown
+        expr: up == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Instance {{ $labels.instance }} ({{ $labels.job }}) is down for more than 30 seconds"
+
+      # Alert when service just recovered
+      - alert: ServiceRecovered
+        expr: up == 1 and increase(up[5m]) > 0
+        for: 10s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Service {{ $labels.job }} recovered"
+          description: "Instance {{ $labels.instance }} ({{ $labels.job }}) has recovered and is now up"
+
+      # Prometheus itself down
+      - alert: PrometheusDown
+        expr: up{job="prometheus"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus is down"
+          description: "Prometheus monitoring is not responding"
+
+      # AlertManager down
+      - alert: AlertManagerDown
+        expr: up{job="alertmanager"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "AlertManager is down"
+          description: "AlertManager service is not responding"
+
+      # Node exporter down
+      - alert: NodeExporterDown
+        expr: up{job="node"} == 0
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node Exporter is down"
+          description: "Node Exporter on {{ $labels.instance }} is not responding"

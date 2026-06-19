@@ -1,0 +1,37 @@
+services:
+  mongodb-arbiter:
+    image: mongo:7
+    container_name: mongodb-arbiter
+    hostname: mongo
+    restart: always
+    ports:
+      - "27017:27017"
+    env_file:
+      - .env
+    extra_hosts:
+      - "mongodb-primary:10.180.22.114"
+      - "mongodb-secondary:10.180.22.115"
+      - "mongodb-arbiter:10.180.22.116"
+    command: ["--replSet", "rs0", "--bind_ip_all", "--keyFile", "/etc/mongo/keyfile"]
+    volumes:
+      - mongo_data:/data/db
+      - ./keyfile:/etc/mongo/keyfile
+      - ./mongod.conf:/etc/mongod.conf:ro
+      - mongo_logs:/var/log/mongodb    # persistent logs
+
+  mongodb-exporter:
+    image: percona/mongodb_exporter:0.40
+    container_name: mongodb-exporter
+    restart: always
+    ports:
+      - "9216:9216"
+    environment:
+      MONGODB_URI: "mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@mongodb-arbiter:27017/admin"
+    depends_on:
+      - mongodb-arbiter
+
+volumes:
+  mongo_data:
+    driver: local
+  mongo_logs:
+    driver: local
