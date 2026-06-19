@@ -1,0 +1,51 @@
+services:
+  classification_model :
+    container_name: classification_model
+    image: nayanmoni458/stoneinscription:rocm-test 
+    ports:
+      - "8001:8001"
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+    security_opt:
+      - seccomp:unconfined
+    cap_add:
+      - SYS_PTRACE
+    ipc: host
+    shm_size: 16gb
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    env_file:
+      - .env
+    volumes:
+      - ./models:/app/models
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - monitoring-network
+
+  rocm_exporter:
+    image: rocm/device-metrics-exporter:nic-v1.0.0
+    container_name: rocm_exporter
+    restart: unless-stopped
+    ports:
+      - "9835:9101"
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
+    networks:
+      - monitoring-network
+
+networks:
+  monitoring-network:
+    driver: bridge

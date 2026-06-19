@@ -1,0 +1,31 @@
+services:
+  content-moderation:
+      container_name: "content-moderation"
+      image: vllm/vllm-openai-rocm:latest
+      volumes:
+        - ./deployment/vllm/models:/root/.cache/huggingface
+        - ./deployment/vllm/templates/:/app/templates/
+      ports:
+        - "${API_PORT}:${API_PORT}"
+      ipc: host
+      shm_size: 10g
+      devices:
+        - /dev/kfd
+        - /dev/dri
+      group_add:
+        - video
+      security_opt:
+        - seccomp:unconfined
+      cap_add:
+        - SYS_PTRACE
+      environment:
+        - HIP_VISIBLE_DEVICES=1,2
+        - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN}
+      command: >
+        --model ${API_MODEL}
+        --port ${API_PORT}
+        --gpu-memory-utilization ${API_GPU_UTIL}
+        --api-key ${API_KEY}
+        -tp 2
+        --enable-auto-tool-choice
+        --tool-call-parser pythonic

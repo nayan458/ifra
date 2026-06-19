@@ -1,0 +1,30 @@
+services:
+  suggestion_model:
+      container_name: "suggestion-model"
+      image: vllm/vllm-openai-rocm:latest
+      volumes:
+        - ./deployment/vllm/models:/root/.cache/huggingface
+        - ./deployment/vllm/templates/:/app/templates/
+      ports:
+        - "${OPENAI_API_PORT}:${OPENAI_API_PORT}"
+      ipc: host
+      shm_size: 10g
+      devices:
+        - /dev/kfd
+        - /dev/dri
+      group_add:
+        - video
+      security_opt:
+        - seccomp:unconfined
+      cap_add:
+        - SYS_PTRACE
+      environment:
+        - HIP_VISIBLE_DEVICES=0,1
+      command: >
+        --model ${OPENAI_API_MODEL}
+        --port ${OPENAI_API_PORT}
+        --gpu-memory-utilization ${OPENAI_API_GPU_UTIL}
+        --api-key ${OPENAI_API_KEY}
+        -tp 2
+        --enable-auto-tool-choice
+        --tool-call-parser openai
