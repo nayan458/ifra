@@ -424,7 +424,7 @@ From your **local machine**, transfer the compose file, all env files, and the e
 scp docker/compose.yml ssp@10.180.148.197:/home/ssp/webServer/docker-compose.yml
 
 # Transfer the entire env directory
-scp -r env/ ssp@10.180.148.197:/home/ssp/webServer/env/
+scp -r ./env/ ssp@10.180.148.197:/home/ssp/webServer/env
 
 # Transfer the entire nginx directory (includes certs, snippets, configs)
 scp -r nginx/ ssp@10.180.148.197:/home/ssp/webServer/nginx/
