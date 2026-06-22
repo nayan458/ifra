@@ -32,7 +32,7 @@ All containers share a single `monitoring_network` bridge network.
 | Password | _Provided separately to authorised personnel only_ |
 
 ```bash
-ssh ssp@<monitoring-vm-ip>
+ssh ssp@10.180.148.197
 ```
 
 ---
@@ -261,7 +261,7 @@ The HTML email body includes: number of firing alerts, number of resolved alerts
 SSH into the server:
 
 ```bash
-ssh ssp@<monitoring-vm-ip>
+ssh ssp@10.180.148.197
 ```
 
 Create the project directory:
@@ -324,18 +324,18 @@ From your **local machine**:
 
 ```bash
 # Rename compose.yml on the server
-scp docker/compose.yml ssp@<monitoring-vm-ip>:/home/ssp/monitoring/docker-compose.yml
+scp docker/compose.yml ssp@10.180.148.197:/home/ssp/monitoring/docker-compose.yml
 
 # Transfer all config files
-scp prometheus.yml   ssp@<monitoring-vm-ip>:/home/ssp/monitoring/prometheus.yml
-scp alert.yml        ssp@<monitoring-vm-ip>:/home/ssp/monitoring/alert.yml
-scp alertManager.yml ssp@<monitoring-vm-ip>:/home/ssp/monitoring/alertManager.yml
+scp prometheus.yml   ssp@10.180.148.197:/home/ssp/monitoring/prometheus.yml
+scp alert.yml        ssp@10.180.148.197:/home/ssp/monitoring/alert.yml
+scp alertManager.yml ssp@10.180.148.197:/home/ssp/monitoring/alertManager.yml
 ```
 
 Verify:
 
 ```bash
-ssh ssp@<monitoring-vm-ip> find /home/ssp/monitoring -type f
+ssh ssp@10.180.148.197 find /home/ssp/monitoring -type f
 ```
 
 Expected output:
