@@ -1,0 +1,40 @@
+---
+- name: Install Docker and prepare all nodes
+  hosts: amd_gpu_server
+  become: false
+  vars_files:
+    - vault/secrets.yml
+  vars:
+    project_dir: "/home/{{ amd_gpu_server_user }}/artifactRegistory/Classification-Model"
+    ansible_user: "{{ amd_gpu_server_user }}"
+    ansible_password: "{{ amd_gpu_server_password }}"
+
+  tasks:
+    - name: Create project directory
+      file:
+        path: "{{ project_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Copy docker compose file
+      copy:
+        src: "compose.yml"
+        dest: "{{ project_dir }}/docker-compose.yml"
+
+    - name: Copy environment file
+      copy:
+        src: ".env"
+        dest: "{{ project_dir }}/.env"
+
+    - name: Tear down existing stack completely
+      community.docker.docker_compose_v2:
+        project_src: "{{ project_dir }}"
+        state: absent
+        remove_orphans: true
+        remove_volumes: true
+
+    - name: Start Classification Model
+      community.docker.docker_compose_v2:
+        project_src: "{{ project_dir }}"
+        state: present
+        remove_orphans: true

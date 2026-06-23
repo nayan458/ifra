@@ -1,0 +1,439 @@
+
+
+===== ./AlertManager/alert.yml =====
+groups:
+  - name: service-alerts
+    interval: 30s
+    rules:
+      # Alert when any service is down
+      - alert: ServiceDown
+        expr: up == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Instance {{ $labels.instance }} ({{ $labels.job }}) is down for more than 30 seconds"
+
+      # Alert when service just recovered
+      - alert: ServiceRecovered
+        expr: up == 1 and increase(up[5m]) > 0
+        for: 10s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Service {{ $labels.job }} recovered"
+          description: "Instance {{ $labels.instance }} ({{ $labels.job }}) has recovered and is now up"
+
+      # Prometheus itself down
+      - alert: PrometheusDown
+        expr: up{job="prometheus"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus is down"
+          description: "Prometheus monitoring is not responding"
+
+      # AlertManager down
+      - alert: AlertManagerDown
+        expr: up{job="alertmanager"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "AlertManager is down"
+          description: "AlertManager service is not responding"
+
+      # Node exporter down
+      - alert: NodeExporterDown
+        expr: up{job="node"} == 0
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node Exporter is down"
+          description: "Node Exporter on {{ $labels.instance }} is not responding"
+
+===== ./README.md =====
+
+
+===== ./alert.yml =====
+groups:
+  - name: service-alerts
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service is down"
+          description: "Instance {{ $labels.instance }} is down"
+
+===== ./alertManager.yml =====
+global:
+  resolve_timeout: 5m
+  smtp_smarthost: "smtp.gmail.com:587"
+  smtp_auth_username: "nayancoding@gmail.com"
+  smtp_auth_password: "rcdz teec gtdb xrie"
+  smtp_require_tls: true
+  smtp_from: "nayancoding@gmail.com"
+
+templates: []
+
+route:
+  receiver: "default"
+  repeat_interval: 24h
+
+receivers:
+  - name: "default"
+    email_configs:
+      - to: "nayancoding@gmail.com"
+        from: "nayancoding@gmail.com"
+        headers:
+          Subject: "Alert: {{ .GroupLabels.alertname }}"
+        html: |
+          <b>Alert Summary</b>
+          <p><b>Alerts Firing:</b> {{ len .Alerts.Firing }}</p>
+          <p><b>Alerts Resolved:</b> {{ len .Alerts.Resolved }}</p>
+          {{ range .Alerts }}
+          <hr>
+          <b>Alert:</b> {{ .Labels.alertname }}<br>
+          <b>Severity:</b> {{ .Labels.severity }}<br>
+          <b>Summary:</b> {{ .Annotations.summary }}<br>
+          <b>Description:</b> {{ .Annotations.description }}<br>
+          {{ end }}
+      # Add more email recipients below (copy the block above and change the 'to' field)
+      # Example:
+      - to: "nayanmoni@cdac.in"
+        from: "nayancoding@gmail.com"
+        headers:
+          Subject: "Alert: {{ .GroupLabels.alertname }}"
+        html: |
+          <b>Alert Summary</b>
+          <p><b>Alerts Firing:</b> {{ len .Alerts.Firing }}</p>
+          <p><b>Alerts Resolved:</b> {{ len .Alerts.Resolved }}</p>
+          {{ range .Alerts }}
+          <hr>
+          <b>Alert:</b> {{ .Labels.alertname }}<br>
+          <b>Severity:</b> {{ .Labels.severity }}<br>
+          <b>Summary:</b> {{ .Annotations.summary }}<br>
+          <b>Description:</b> {{ .Annotations.description }}<br>
+          {{ end }}
+
+===== ./docker/compose.yml =====
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: stoneinscription-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./alert.yml:/etc/prometheus/alert.yml
+      - prometheus_data:/prometheus
+    extra_hosts:
+      - "mongodb-primary:10.180.22.114"
+      - "mongodb-secondary:10.180.22.115"
+      - "mongodb-arbiter:10.180.22.116"
+      - "geo:10.182.0.210"
+      - "suggestion_model:10.180.93.12"
+      - "content_moderation:10.180.93.12"
+      - "rocm_exporter:10.180.93.12"
+      - "classification_model:10.180.93.12"
+      - "stoneinscription-backend:10.180.148.197"
+    ports:
+      - "9090:9090"
+    networks:
+      - monitoring_network
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: stoneinscription-alertmanager
+    restart: unless-stopped
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertManager.yml:/etc/alertmanager/alertManager.yml
+    command:
+      - "--config.file=/etc/alertmanager/alertManager.yml"
+    networks:
+      - monitoring_network
+
+  node_exporter:
+    image: prom/node-exporter:latest
+    container_name: stoneinscription-node-exporter
+    restart: unless-stopped
+    ports:
+      - "9100:9100"
+    networks:
+      - monitoring_network
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: stoneinscription-cadvisor
+    restart: unless-stopped
+    ports:
+      - "8082:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - monitoring_network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: stoneinscription-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - monitoring_network
+  blackbox_exporter:
+    container_name: blackbox_exporter
+    image: prom/blackbox-exporter:latest
+    extra_hosts:
+      - "geo:10.182.0.210"
+    ports:
+      - "9115:9115"
+    networks:
+      - monitoring_network
+
+volumes:
+  grafana_data:
+    driver: local
+  prometheus_data:
+    driver: local
+networks:
+  monitoring_network:
+    driver: bridge
+
+===== ./monitoring.deployment.yml =====
+---
+- name: Install Docker and deploy compose stack
+  hosts: web_servers
+  become: true
+
+  vars_files:
+    - vault/secrets.yml
+
+  vars:
+    project_dir: "/home/ssp/monitoring"
+    ansible_user: "{{ web_server_user }}"
+    ansible_password: "{{ web_server_password }}"
+    ansible_become_password: "{{ web_server_password }}"
+
+  tasks:
+
+  # - name: Update apt cache
+  #   apt:
+  #     update_cache: yes
+  #   when: ansible_facts['os_family'] == "Debian"
+
+  # - name: Install required dependencies
+  #   apt:
+  #     name:
+  #       - ca-certificates
+  #       - curl
+  #       - gnupg
+  #     state: present
+  #     update_cache: yes
+
+  # - name: Create Docker keyring directory
+  #   file:
+  #     path: /etc/apt/keyrings
+  #     state: directory
+  #     mode: "0755"
+
+  # - name: Download Docker GPG key
+  #   get_url:
+  #     url: https://download.docker.com/linux/ubuntu/gpg
+  #     dest: /etc/apt/keyrings/docker.asc
+  #     mode: "0644"
+
+  # - name: Add Docker repository
+  #   apt_repository:
+  #     repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+  #     filename: docker
+  #     state: present
+
+  # - name: Update apt cache after adding Docker repo
+  #   apt:
+  #     update_cache: yes
+
+  # - name: Install Docker Engine and Compose v2
+  #   apt:
+  #     name:
+  #       - docker-ce
+  #       - docker-ce-cli
+  #       - containerd.io
+  #       - docker-buildx-plugin
+  #       - docker-compose-plugin
+  #     state: present
+
+  # - name: Ensure Docker service is started
+  #   service:
+  #     name: docker
+  #     state: started
+  #     enabled: true
+
+  - name: Add user to docker group
+    user:
+      name: "{{ web_server_user }}"
+      groups: docker
+      append: yes
+
+  - name: Create project directory
+    file:
+      path: "{{ project_dir }}"
+      state: directory
+      mode: "0755"
+
+  - name: Copy docker compose file
+    copy:
+      src: "docker/compose.yml"
+      dest: "{{ project_dir }}/docker-compose.yml"
+
+  - name: Copy prometheus file
+    copy:
+      src: "prometheus.yml"
+      dest: "{{ project_dir }}/prometheus.yml"
+
+  - name: Copy alert file
+    copy:
+      src: "alert.yml"
+      dest: "{{ project_dir }}/alert.yml"
+
+  - name: Copy alert manager file
+    copy:
+      src: "alertManager.yml"
+      dest: "{{ project_dir }}/alertManager.yml"
+
+  - name: Add hostnames to /etc/hosts
+    lineinfile:
+      path: /etc/hosts
+      line: "{{ item }}"
+      state: present
+    loop:
+      - "10.180.93.12  suggestion_model"
+      - "10.180.93.12  classification_model"
+      - "10.180.93.12  content_moderation"
+      - "10.180.93.12  rocm_exporter"
+      - "10.182.0.210 geo"
+      - "10.180.22.114 mongodb-primary"
+      - "10.180.22.115 mongodb-secondary"
+      - "10.180.22.116 mongodb-arbiter"
+      - "10.180.148.197 stoneinscription-backend"
+
+  - name: Tear down existing stack completely
+    community.docker.docker_compose_v2:
+      project_src: "{{ project_dir }}"
+      state: absent
+      remove_orphans: true
+      remove_volumes: true
+
+  - name: Start Monitoring stack with docker compose
+    community.docker.docker_compose_v2:
+      project_src: "{{ project_dir }}"
+      state: present
+      remove_orphans: true
+
+===== ./prometheus.yml =====
+global:
+  scrape_interval: 5s
+
+rule_files:
+  - alert.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["prometheus:9090"]
+
+  - job_name: "node"
+    static_configs:
+      - targets: ["node_exporter:9100"]
+
+  - job_name: "cadvisor"
+    static_configs:
+      - targets: ["cadvisor:8080"]
+
+  - job_name: "geo"
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://geo:8080/search?q=Delhi&format=json
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox_exporter:9115
+
+  - job_name: "suggestion AI model"
+    static_configs:
+    - targets: ["suggestion_model:8080"]
+      labels:
+        instance: "suggestion_model"
+
+  - job_name: "content moderation AI model"
+    static_configs:
+    - targets: ["content_moderation:8081"]
+      labels:
+        instance: "content_moderation"
+
+  - job_name: "mongodb"
+    static_configs:
+    - targets: ["mongodb-primary:9216"]
+      labels:
+        instance: "mongodb-primary"
+
+    - targets: ["mongodb-secondary:9216"]
+      labels:
+        instance: "mongodb-secondary-1"
+
+    - targets: ["mongodb-arbiter:9216"]
+      labels:
+        instance: "mongodb-arbiter"
+        
+  - job_name: "spring-backend"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["stoneinscription-backend:8081"]
+
+  - job_name: "Classification-model"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["classification_model:8001"]
+
+  # - job_name: "amd-gpu"
+  #   static_configs:
+  #     - targets: ["rocm_exporter:9101"]
+
+# rule_files:
+#   - "alert.yml"
+
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#             - "alertmanager:9093"
+
+
+===== ./output.txt =====

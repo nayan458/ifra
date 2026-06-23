@@ -1,0 +1,334 @@
+# ── Phase 1: Prepare ALL nodes ────────────────────────────────────
+- name: Install Docker and prepare all nodes
+  hosts: mongodb_servers
+  become: true
+  vars_files:
+    - vault/secrets.yml
+  vars:
+    project_dir: "/home/mongodb"
+    ansible_user: "{{ mongodb_server_user }}"
+    ansible_password: "{{ mongodb_server_password }}"
+    ansible_become_password: "{{ mongodb_server_password }}"
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+      when: ansible_facts['os_family'] == "Debian"
+
+    - name: Install required dependencies
+      apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+        state: present
+
+    - name: Create Docker keyring directory
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+
+    - name: Download Docker GPG key
+      get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        filename: docker
+        state: present
+
+    - name: Update apt cache after adding Docker repo
+      apt:
+        update_cache: yes
+
+    - name: Install Docker Engine and Compose v2
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+
+    - name: Ensure Docker service is started
+      service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Add user to docker group
+      user:
+        name: "{{ mongodb_server_user }}"
+        groups: docker
+        append: yes
+
+    - name: Add MongoDB hostnames to /etc/hosts
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ item }}"
+        state: present
+      loop:
+        - "10.180.22.114  mongodb-primary"
+        - "10.180.22.115  mongodb-secondary"
+        - "10.180.22.116  mongodb-arbiter"
+
+    - name: Create project directory
+      file:
+        path: "{{ project_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Check if keyfile already exists locally
+      stat:
+        path: "keyfile"
+      register: keyfile_stat
+      delegate_to: localhost
+      run_once: true
+      become: false
+
+    - name: Generate keyfile (only on first run)
+      command: openssl rand -base64 756
+      register: keyfile_gen
+      delegate_to: localhost
+      run_once: true
+      become: false
+      when: not keyfile_stat.stat.exists
+      changed_when: true
+
+    - name: Save keyfile locally for reuse
+      copy:
+        content: "{{ keyfile_gen.stdout }}"
+        dest: "keyfile"
+        mode: "0600"
+      delegate_to: localhost
+      run_once: true
+      become: false
+      when: not keyfile_stat.stat.exists
+
+    - name: Deploy keyfile to all nodes
+      copy:
+        src: "keyfile"
+        dest: "{{ project_dir }}/keyfile"
+        mode: "0400"
+        owner: "999"
+        group: "999"
+
+    - name: Copy compose file
+      copy:
+        src: "mongodb/{{ inventory_hostname }}/compose.yml"
+        dest: "{{ project_dir }}/docker-compose.yml"
+    
+    - name: Copy mongod conf file
+      copy:
+        src: "mongodb/{{ inventory_hostname }}/mongod.conf"
+        dest: "{{ project_dir }}/mongod.conf"
+        mode: "0644"
+
+    - name: Copy env file
+      copy:
+        src: "env/{{ inventory_hostname }}/.env"
+        dest: "{{ project_dir }}/.env"
+
+    - name: Copy scripts directory
+      copy:
+        src: "scripts/"
+        dest: "{{ project_dir }}/scripts/"
+        mode: "0755"
+
+    - name: Tear down existing stack and volumes
+      community.docker.docker_compose_v2:
+        project_src: "{{ project_dir }}"
+        state: absent
+        remove_volumes: true
+      ignore_errors: true
+
+
+# ── Phase 2: Start primary and init single-node replica set ──────
+- name: Start primary node
+  hosts: vm1
+  become: true
+  vars_files:
+    - vault/secrets.yml
+  vars:
+    project_dir: "/home/mongodb"
+    ansible_user: "{{ mongodb_server_user }}"
+    ansible_password: "{{ mongodb_server_password }}"
+    ansible_become_password: "{{ mongodb_server_password }}"
+
+  tasks:
+    - name: Start primary compose stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ project_dir }}"
+        state: present
+
+    - name: Wait until MongoDB is up (no auth yet)
+      command: >
+        docker compose exec mongodb-primary mongosh
+        --quiet
+        --eval "db.adminCommand({ ping: 1 }).ok"
+      register: ping_result
+      retries: 30
+      delay: 10
+      until: ping_result.rc == 0 and ping_result.stdout | trim == "1"
+      changed_when: false
+      args:
+        chdir: "{{ project_dir }}"
+
+    - name: Wait until root user is ready
+      command: >
+        docker compose exec mongodb-primary mongosh
+        -u {{ mongodb_root_user }}
+        -p {{ mongodb_root_password }}
+        --authenticationDatabase admin
+        --quiet
+        --eval "db.adminCommand({ ping: 1 }).ok"
+      register: auth_result
+      retries: 20
+      delay: 10
+      until: auth_result.rc == 0 and auth_result.stdout | trim == "1"
+      changed_when: false
+      args:
+        chdir: "{{ project_dir }}"
+
+    - name: Copy rs-init.js into container
+      command: docker cp {{ project_dir }}/scripts/rs-init.js mongodb-primary:/tmp/rs-init.js
+
+    - name: Initiate replica set with primary only
+      command: >
+        docker compose exec mongodb-primary mongosh
+        -u {{ mongodb_root_user }}
+        -p {{ mongodb_root_password }}
+        --authenticationDatabase admin
+        --quiet
+        /tmp/rs-init.js
+      args:
+        chdir: "{{ project_dir }}"
+      register: rs_init
+      failed_when: >
+        rs_init.rc != 0 and
+        'AlreadyInitialized' not in rs_init.stderr
+      changed_when: "'SUCCESS' in rs_init.stdout"
+
+    - name: Wait until primary is elected PRIMARY
+      command: >
+        docker compose exec mongodb-primary mongosh
+        -u {{ mongodb_root_user }}
+        -p {{ mongodb_root_password }}
+        --authenticationDatabase admin
+        --quiet
+        --eval "rs.isMaster().ismaster"
+      register: master_result
+      retries: 20
+      delay: 10
+      until: master_result.rc == 0 and master_result.stdout | trim == "true"
+      changed_when: false
+      args:
+        chdir: "{{ project_dir }}"
+
+
+# ── Phase 3: Start secondary and arbiter ─────────────────────────
+- name: Start secondary and arbiter nodes
+  hosts: vm2,vm3
+  become: true
+  vars_files:
+    - vault/secrets.yml
+  vars:
+    project_dir: "/home/mongodb"
+    ansible_user: "{{ mongodb_server_user }}"
+    ansible_password: "{{ mongodb_server_password }}"
+    ansible_become_password: "{{ mongodb_server_password }}"
+
+  tasks:
+    - name: Start secondary/arbiter compose stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ project_dir }}"
+        state: present
+
+
+# ── Phase 3b: Add secondary and arbiter to replica set ───────────
+- name: Add secondary and arbiter to replica set
+  hosts: vm1
+  become: true
+  vars_files:
+    - vault/secrets.yml
+  vars:
+    project_dir: "/home/mongodb"
+    ansible_user: "{{ mongodb_server_user }}"
+    ansible_password: "{{ mongodb_server_password }}"
+    ansible_become_password: "{{ mongodb_server_password }}"
+
+  tasks:
+    - name: Wait for secondary to be reachable
+      wait_for:
+        host: mongodb-secondary
+        port: 27017
+        timeout: 60
+
+    - name: Wait for arbiter to be reachable
+      wait_for:
+        host: mongodb-arbiter
+        port: 27017
+        timeout: 60
+
+    - name: Copy rs-add-members.js into container
+      command: docker cp {{ project_dir }}/scripts/rs-add-members.js mongodb-primary:/tmp/rs-add-members.js
+
+    - name: Add secondary and arbiter to replica set
+      command: >
+        docker compose exec mongodb-primary mongosh
+        -u {{ mongodb_root_user }}
+        -p {{ mongodb_root_password }}
+        --authenticationDatabase admin
+        --quiet
+        /tmp/rs-add-members.js
+      args:
+        chdir: "{{ project_dir }}"
+      register: rs_add
+      failed_when: >
+        rs_add.rc != 0 and
+        'already' not in rs_add.stderr | lower
+      changed_when: "'SUCCESS' in rs_add.stdout"
+
+
+# ── Phase 4: Verify replica set health ───────────────────────────
+- name: Verify replica set
+  hosts: vm1
+  become: true
+  vars_files:
+    - vault/secrets.yml
+  vars:
+    project_dir: "/home/mongodb"
+    ansible_user: "{{ mongodb_server_user }}"
+    ansible_password: "{{ mongodb_server_password }}"
+    ansible_become_password: "{{ mongodb_server_password }}"
+
+  tasks:
+    - name: Allow time for members to sync
+      pause:
+        seconds: 20
+
+    - name: Copy rs-verify.js into container
+      command: docker cp {{ project_dir }}/scripts/rs-verify.js mongodb-primary:/tmp/rs-verify.js
+
+    - name: Run rs-verify.js
+      command: >
+        docker compose exec mongodb-primary mongosh
+        -u {{ mongodb_root_user }}
+        -p {{ mongodb_root_password }}
+        --authenticationDatabase admin
+        --quiet
+        /tmp/rs-verify.js
+      args:
+        chdir: "{{ project_dir }}"
+      register: rs_verify
+      changed_when: false
+
+    - name: Print replica set status
+      debug:
+        msg: "{{ rs_verify.stdout_lines }}"

@@ -1,0 +1,50 @@
+---
+- name: Install Docker and deploy compose stack
+  hosts: web_servers
+  become: true
+
+  vars_files:
+    - vault/secrets.yml
+
+  vars:
+    project_dir: "/home/ssp/kafka"
+    ansible_user: "{{ web_server_user }}"
+    ansible_password: "{{ web_server_password }}"
+    ansible_become_password: "{{ web_server_password }}"
+
+  tasks:
+  - name: Add user to docker group
+    user:
+      name: "{{ web_server_user }}"
+      groups: docker
+      append: yes
+
+  - name: Create project directory
+    file:
+      path: "{{ project_dir }}"
+      state: directory
+      mode: "0755"
+
+  - name: Copy docker compose file
+    copy:
+      src: "docker/compose.kafka.yml"
+      dest: "{{ project_dir }}/docker-compose.yml"
+
+  - name: Copy env folder
+    copy:
+      src: env/
+      dest: "{{ project_dir }}/env/"
+  
+  - name: Pull latest images
+    community.docker.docker_compose_v2:
+      project_src: "{{ project_dir }}"
+      state: present
+      pull: always
+
+  - name: Recreate and restart containers
+    community.docker.docker_compose_v2:
+      project_src: "{{ project_dir }}"
+      # project_src: "{{ project_dir }}"
+      state: present
+      recreate: always
+      remove_orphans: true

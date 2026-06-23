@@ -1,0 +1,116 @@
+
+
+===== ./README.md =====
+
+
+===== ./docker/compose.kafka.yml =====
+services:
+  zookeeper:
+    image: zookeeper:3.9.5
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    volumes:
+      - zookeeper_data:/data
+      - zookeeper_logs:/datalog
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.11
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    env_file:
+      - ./env/kafka.env
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+
+  akhq:
+    image: tchiotludo/akhq:0.25.1
+    container_name: akhq
+    depends_on:
+      - kafka
+    ports:
+      - "8090:8080"
+    environment:
+      AKHQ_CONFIGURATION: |
+        akhq:
+          connections:
+            local-kafka:
+              properties:
+                bootstrap.servers: "kafka:9092"
+
+volumes:
+  zookeeper_data:
+    driver: local
+  zookeeper_logs:
+    driver: local
+  kafka_data:
+    driver: local
+
+===== ./env/kafka.env =====
+KAFKA_BROKER_ID=1
+KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
+KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,PLAINTEXT_HOST://10.180.148.197:29092
+KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+KAFKA_AUTO_CREATE_TOPICS_ENABLE=true
+KAFKA_DELETE_TOPIC_ENABLE=true
+
+===== ./webServerKafka.deployment.yml =====
+---
+- name: Install Docker and deploy compose stack
+  hosts: web_servers
+  become: true
+
+  vars_files:
+    - vault/secrets.yml
+
+  vars:
+    project_dir: "/home/ssp/kafka"
+    ansible_user: "{{ web_server_user }}"
+    ansible_password: "{{ web_server_password }}"
+    ansible_become_password: "{{ web_server_password }}"
+
+  tasks:
+  - name: Add user to docker group
+    user:
+      name: "{{ web_server_user }}"
+      groups: docker
+      append: yes
+
+  - name: Create project directory
+    file:
+      path: "{{ project_dir }}"
+      state: directory
+      mode: "0755"
+
+  - name: Copy docker compose file
+    copy:
+      src: "docker/compose.kafka.yml"
+      dest: "{{ project_dir }}/docker-compose.yml"
+
+  - name: Copy env folder
+    copy:
+      src: env/
+      dest: "{{ project_dir }}/env/"
+  
+  - name: Pull latest images
+    community.docker.docker_compose_v2:
+      project_src: "{{ project_dir }}"
+      state: present
+      pull: always
+
+  - name: Recreate and restart containers
+    community.docker.docker_compose_v2:
+      project_src: "{{ project_dir }}"
+      # project_src: "{{ project_dir }}"
+      state: present
+      recreate: always
+      remove_orphans: true
+
+===== ./output.txt =====
